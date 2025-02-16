@@ -5,7 +5,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-// Introduce a new trait that is called Poolable.
+// Introduce a new trait that is called AnyPool.
 // Trait for dynamic downcasting
 trait AnyPool {
     fn as_any(&self) -> &dyn std::any::Any;
@@ -16,16 +16,16 @@ pub struct ObjectPool<T>
 where
     T: Default,
 {
-    // default_value: Arc<T>,
     pool: Arc<Mutex<Vec<Arc<T>>>>,
 }
+
 
 impl<T: 'static> AnyPool for ObjectPool<T>
 where
     T: Default,
 {
     fn as_any(&self) -> &dyn std::any::Any {
-        self
+        self // this has temporary lifetime. So the type needs to be qualified with 'static.
     }
 }
 
@@ -36,11 +36,10 @@ where
     pub fn new(data: Vec<Arc<T>>) -> Self {
         ObjectPool {
             pool: Arc::new(Mutex::new(data)),
-            // default_value: Arc::new(default_value),
         }
     }
 
-    fn get(&self) -> PooledObject<T> {
+    fn get(&self) -> PooledObject<T> { // PooledObject is declared below. This holds the object that just got returned from the pool.
         let data = self.pool.lock().unwrap().pop();
         PooledObject {
             pool: Arc::clone(&self.pool),
@@ -53,11 +52,15 @@ where
     }
 }
 
-struct PooledObject<T> {
+struct PooledObject<T> { // holds the reference count of both the value that is taken from the pool and the pool as well.
     value: Arc<T>,
     pool: Arc<Mutex<Vec<Arc<T>>>>,
 }
 
+/*
+Drop trait is implemented for PooledObject so that when the PooledObject goes out of scope
+we push the object back to the pool. No more manual pushing back to the pool.
+*/ 
 impl<T> Drop for PooledObject<T> {
     fn drop(&mut self) {
         let mut pool = self.pool.lock().unwrap();
@@ -65,6 +68,10 @@ impl<T> Drop for PooledObject<T> {
     }
 }
 
+/*
+    This class holds the map for the pool id and the ObjectPool.
+    We can't have a generic type here. So take the value as Box<dyn AnyPool>
+*/
 struct SuperPool {
     pool_map: HashMap<String, Arc<Box<dyn AnyPool>>>,
 }
